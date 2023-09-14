@@ -721,6 +721,7 @@ def make_train_dataset(args, tokenizer, accelerator):
             transforms.Resize(args.resolution, interpolation=transforms.InterpolationMode.BILINEAR),
             transforms.CenterCrop(args.resolution),
             transforms.ToTensor(),
+            transforms.Normalize([0.5], [0.5]),
         ]
     )
 
@@ -787,13 +788,6 @@ def collate_fn(examples):
     }
 
 
-def prepare_mask_and_masked_image(image, mask):
-    mask = mask / 255.0
-    masked_image = image * (mask < 0.5)
-
-    return mask, masked_image
-
-
 def main(args):
     logging_dir = Path(args.output_dir, args.logging_dir)
 
@@ -850,6 +844,7 @@ def main(args):
 
     # Load scheduler and models
     noise_scheduler = DDIMScheduler.from_pretrained(args.pretrained_inpaint_model_name_or_path, subfolder="scheduler")
+    noise_scheduler.set_timesteps(35)
     text_encoder = text_encoder_cls.from_pretrained(
         args.pretrained_inpaint_model_name_or_path, subfolder="text_encoder", revision=args.revision
     )
@@ -914,6 +909,7 @@ def main(args):
                     "xFormers 0.0.16 cannot be used for training in some GPUs. If you observe problems during training, please update xFormers to at least 0.0.17. See https://huggingface.co/docs/diffusers/main/en/optimization/xformers for more details."
                 )
             inpaint_unet.enable_xformers_memory_efficient_attention()
+            unet.enable_xformers_memory_efficient_attention()
             controlnet.enable_xformers_memory_efficient_attention()
         else:
             raise ValueError("xformers is not available. Make sure it is installed correctly")
@@ -1007,6 +1003,7 @@ def main(args):
     # Move vae, unet and text_encoder to device and cast to weight_dtype
     vae.to(accelerator.device, dtype=weight_dtype)
     inpaint_unet.to(accelerator.device, dtype=weight_dtype)
+    unet.to(accelerator.device, dtype=weight_dtype)
     text_encoder.to(accelerator.device, dtype=weight_dtype)
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
@@ -1086,13 +1083,14 @@ def main(args):
 
                 distorted_image = batch["distorted_pixel_values"].to(dtype=weight_dtype)
 
-                probabilities = [0.8, 0.2]
-                image = random.choices([flawless_image, distorted_image], weights=probabilities, k=1)[0]
+                # probabilities = [0.8, 0.2]
+                # image = random.choices([flawless_image, distorted_image], weights=probabilities, k=1)[0]
+                image = flawless_image
                 
                 mask = batch["mask_pixel_values"]
                 assert mask != None, f"no mask found for one of the samples in the {step}th batch"
 
-                mask, masked_image = prepare_mask_and_masked_image(image, mask)
+                masked_image = image * (mask < 0.5)
                 masked_image = masked_image.to(dtype=weight_dtype)
 
                 condition_image = batch["conditioning_pixel_values"].to(dtype=weight_dtype)

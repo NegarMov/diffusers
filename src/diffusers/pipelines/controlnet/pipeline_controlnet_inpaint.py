@@ -1194,6 +1194,7 @@ class StableDiffusionControlNetInpaintPipeline(
         # 6. Prepare latent variables
         num_channels_latents = self.vae.config.latent_channels
         num_channels_unet = self.unet.config.in_channels
+        num_channels_controlnet = self.controlnet.config.in_channels
         return_image_latents = num_channels_unet == 4
         latents_outputs = self.prepare_latents(
             batch_size * num_images_per_prompt,
@@ -1267,8 +1268,14 @@ class StableDiffusionControlNetInpaintPipeline(
                         controlnet_cond_scale = controlnet_cond_scale[0]
                     cond_scale = controlnet_cond_scale * controlnet_keep[i]
 
+                latent_model_input = torch.cat([latent_model_input, mask, masked_image_latents], dim=1)
+
+                controlnet_input = latent_model_input if num_channels_controlnet == 9 else control_model_input
+                unet_input = latent_model_input if num_channels_controlnet == 9 else control_model_input
+
+
                 down_block_res_samples, mid_block_res_sample = self.controlnet(
-                    control_model_input,
+                    controlnet_input,
                     t,
                     encoder_hidden_states=controlnet_prompt_embeds,
                     controlnet_cond=control_image,
@@ -1284,12 +1291,8 @@ class StableDiffusionControlNetInpaintPipeline(
                     down_block_res_samples = [torch.cat([torch.zeros_like(d), d]) for d in down_block_res_samples]
                     mid_block_res_sample = torch.cat([torch.zeros_like(mid_block_res_sample), mid_block_res_sample])
 
-                # predict the noise residual
-                if num_channels_unet == 9:
-                    latent_model_input = torch.cat([latent_model_input, mask, masked_image_latents], dim=1)
-
                 noise_pred = self.unet(
-                    latent_model_input,
+                    unet_input,
                     t,
                     encoder_hidden_states=prompt_embeds,
                     cross_attention_kwargs=cross_attention_kwargs,

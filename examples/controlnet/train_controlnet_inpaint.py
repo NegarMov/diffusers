@@ -1126,8 +1126,11 @@ def main(args):
                 # Get the text embedding for conditioning
                 encoder_hidden_states = text_encoder(batch["input_ids"])[0]
 
+                controlnet_input = latent_model_input if controlnet.config.in_channels == 9 else noisy_latents
+                unet_input = latent_model_input if inpaint_unet.config.in_channels == 9 else noisy_latents
+
                 down_block_res_samples, mid_block_res_sample = controlnet(
-                    noisy_latents,
+                    controlnet_input,
                     timesteps,
                     encoder_hidden_states=encoder_hidden_states,
                     controlnet_cond=condition_image,
@@ -1136,7 +1139,7 @@ def main(args):
 
                 # Predict the noise residual
                 model_pred = inpaint_unet(
-                    latent_model_input,
+                    unet_input,
                     timesteps,
                     encoder_hidden_states=encoder_hidden_states,
                     down_block_additional_residuals=[
